@@ -13,6 +13,9 @@ import { useDeepMemo } from './useDeepMemo';
 import { OperationVariables } from '../../../core';
 import { getApolloContext } from '../../context';
 
+// React Native: make Typesript believe this global variable exists
+declare var __DEV__: boolean;
+
 export function useBaseQuery<TData = any, TVariables = OperationVariables>(
   query: DocumentNode | TypedDocumentNode<TData, TVariables>,
   options?: QueryHookOptions<TData, TVariables>,
@@ -70,8 +73,29 @@ export function useBaseQuery<TData = any, TVariables = OperationVariables>(
     ? (result as QueryTuple<TData, TVariables>)[1]
     : (result as QueryResult<TData, TVariables>);
 
+  let _maybeFastRefresh = useRef(false);
+
+  // Putting a conditional around a hook is not ok normally
+  // but this only occurs inside inside a React Native
+  // dev environment, so we should be safe.
+  if (__DEV__) {
+    useEffect(() => {
+      return () => _maybeFastRefresh.current = true;
+    }, []);
+  }
   useEffect(() => {
-    return () => queryData.cleanup();
+    // If we have detected that the component unloaded in a fast-refresh
+    // context, let's force an update.
+    if (_maybeFastRefresh && _maybeFastRefresh.current) {
+      _maybeFastRefresh.current = false;
+      forceUpdate();
+      return;
+    }
+
+    return () => {
+      queryData.cleanup();
+      queryDataRef.current = undefined;
+    }
   }, []);
 
   useEffect(() => queryData.afterExecute({ lazy }), [
